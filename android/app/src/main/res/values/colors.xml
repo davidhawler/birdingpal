@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_blue">#006AFF</color>
+    <color name="brand_blue_dark">#0050C4</color>
+    <color name="neutral_black">#111111</color>
+    <color name="neutral_white">#FFFFFF</color>
+    <color name="neutral_gray_100">#F2F2F2</color>
+    <color name="neutral_gray_200">#E5E5E5</color>
+    <color name="neutral_gray_500">#9A9A9A</color>
+</resources>
