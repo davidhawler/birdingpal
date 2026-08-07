@@ -37,6 +37,63 @@ def main() -> int:
         )
         gradle_path.write_text(text)
 
+    controller_path = android / "app" / "src" / "main" / "java" / "com" / "openaiexperiments" / "birdingbuddy" / "nativeapp" / "net" / "ExperimentControllers.kt"
+    text = controller_path.read_text()
+    if 'getSharedPreferences("birdingpal_settings"' not in text:
+        text = replace_once(
+            text,
+            '    private val apiKey: String\n        get() = BuildConfig.OPENAI_API_KEY.trim()\n',
+            '    private val apiKey: String\n'
+            '        get() {\n'
+            '            val stored =\n'
+            '                context.getSharedPreferences("birdingpal_settings", Context.MODE_PRIVATE)\n'
+            '                    .getString("openai_api_key", "")\n'
+            '                    .orEmpty()\n'
+            '                    .trim()\n'
+            '            return stored.ifBlank { BuildConfig.OPENAI_API_KEY.trim() }\n'
+            '        }\n',
+            "runtime API key",
+        )
+        text = replace_once(
+            text,
+            '            setStatus("OPENAI_API_KEY is missing. Rebuild app with OPENAI_API_KEY set.")\n            addLog("Missing OPENAI_API_KEY in BuildConfig.")\n',
+            '            setStatus("Open Settings and add an OpenAI API key.")\n'
+            '            addLog("OpenAI API key is not configured.")\n',
+            "missing API key message",
+        )
+        text = replace_once(
+            text,
+            '                .header("Authorization", "Bearer ${BuildConfig.OPENAI_API_KEY}")\n',
+            '                .header("Authorization", "Bearer $apiKey")\n',
+            "HTTP API key",
+        )
+        text = replace_once(
+            text,
+            '    protected fun birdnetAnalyzerUrl(path: String): String {\n'
+            '        val baseRaw = birdnetAnalyzerUrlProvider().trim()\n'
+            '        val base =\n'
+            '            if (baseRaw.isBlank()) {\n'
+            '                BuildConfig.BIRDNET_ANALYZER_URL.trim()\n'
+            '            } else {\n'
+            '                baseRaw\n'
+            '            }\n',
+            '    protected fun birdnetAnalyzerUrl(path: String): String {\n'
+            '        val storedBase =\n'
+            '            context.getSharedPreferences("birdingpal_settings", Context.MODE_PRIVATE)\n'
+            '                .getString("birdnet_analyzer_url", "")\n'
+            '                .orEmpty()\n'
+            '                .trim()\n'
+            '        val baseRaw = birdnetAnalyzerUrlProvider().trim().ifBlank { storedBase }\n'
+            '        val base =\n'
+            '            if (baseRaw.isBlank()) {\n'
+            '                BuildConfig.BIRDNET_ANALYZER_URL.trim()\n'
+            '            } else {\n'
+            '                baseRaw\n'
+            '            }\n',
+            "runtime BirdNET URL",
+        )
+        controller_path.write_text(text)
+
     service_path = android / "app" / "src" / "main" / "java" / "com" / "openaiexperiments" / "birdingbuddy" / "nativeapp" / "background" / "BirdBuddySessionService.kt"
     text = service_path.read_text()
     if 'BuildConfig.ENABLE_BLE' not in text:
@@ -100,6 +157,7 @@ def main() -> int:
         '\n        <receiver\n            android:name=".nativeapp.background.BirdBuddyBootReceiver"\n            android:enabled="true"\n            android:exported="true">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED" />\n            </intent-filter>\n        </receiver>\n',
     ]:
         text = text.replace(block, '')
+    text = text.replace('android:allowBackup="true"', 'android:allowBackup="false"')
     text = text.replace(
         'android:foregroundServiceType="dataSync"\n            android:stopWithTask="false"',
         'android:foregroundServiceType="dataSync|microphone"\n            android:stopWithTask="true"',
