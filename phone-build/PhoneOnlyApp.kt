@@ -1,6 +1,7 @@
 package com.openaiexperiments.birdingbuddy.nativeapp.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.openaiexperiments.birdingbuddy.BuildConfig
@@ -57,6 +60,10 @@ import com.openaiexperiments.birdingbuddy.nativeapp.model.ChatRole
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+
+private const val SETTINGS_PREFS = "birdingpal_settings"
+private const val PREF_OPENAI_API_KEY = "openai_api_key"
+private const val PREF_BIRDNET_ANALYZER_URL = "birdnet_analyzer_url"
 
 private val PhoneColorScheme =
     lightColorScheme(
@@ -84,6 +91,9 @@ private data class BirdBookEntry(
 @Composable
 fun PhoneOnlyApp() {
     val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences(SETTINGS_PREFS, Context.MODE_PRIVATE) }
+    var storedApiKey by remember { mutableStateOf(prefs.getString(PREF_OPENAI_API_KEY, "").orEmpty()) }
+    var storedBirdNetUrl by remember { mutableStateOf(prefs.getString(PREF_BIRDNET_ANALYZER_URL, "").orEmpty()) }
     var pendingPermissionAction by remember { mutableStateOf<((Map<String, Boolean>) -> Unit)?>(null) }
 
     val permissionLauncher =
@@ -154,10 +164,34 @@ fun PhoneOnlyApp() {
 
     MaterialTheme(colorScheme = PhoneColorScheme) {
         val state by BirdBuddySessionStore.state.collectAsState()
+        val buildApiKeyConfigured = BuildConfig.OPENAI_API_KEY.isNotBlank()
+        val buildBirdNetConfigured = BuildConfig.BIRDNET_ANALYZER_URL.isNotBlank()
+        val apiKeyConfigured = storedApiKey.isNotBlank() || buildApiKeyConfigured
+        val birdNetConfigured = storedBirdNetUrl.isNotBlank() || buildBirdNetConfigured
 
         PhoneOnlyScreen(
             state = state,
-            birdNetConfigured = BuildConfig.BIRDNET_ANALYZER_URL.isNotBlank(),
+            apiKeyConfigured = apiKeyConfigured,
+            birdNetConfigured = birdNetConfigured,
+            storedApiKey = storedApiKey,
+            storedBirdNetUrl = storedBirdNetUrl,
+            buildApiKeyConfigured = buildApiKeyConfigured,
+            buildBirdNetConfigured = buildBirdNetConfigured,
+            onSaveSettings = { apiKey, birdNetUrl ->
+                prefs.edit()
+                    .putString(PREF_OPENAI_API_KEY, apiKey.trim())
+                    .putString(PREF_BIRDNET_ANALYZER_URL, birdNetUrl.trim())
+                    .apply()
+                storedApiKey = apiKey.trim()
+                storedBirdNetUrl = birdNetUrl.trim()
+                if (state.armed) {
+                    BirdBuddySessionService.enqueueAction(
+                        context = context,
+                        action = BirdBuddyActions.ACTION_RECONNECT_REALTIME,
+                        triggerSource = BirdBuddyTriggerSource.UI
+                    )
+                }
+            },
             onConnect = {
                 runWithMicrophone {
                     BirdBuddySessionService.enqueueAction(
@@ -192,7 +226,13 @@ fun PhoneOnlyApp() {
 @Composable
 private fun PhoneOnlyScreen(
     state: BirdBuddySessionState,
+    apiKeyConfigured: Boolean,
     birdNetConfigured: Boolean,
+    storedApiKey: String,
+    storedBirdNetUrl: String,
+    buildApiKeyConfigured: Boolean,
+    buildBirdNetConfigured: Boolean,
+    onSaveSettings: (String, String) -> Unit,
     onConnect: () -> Unit,
     onAnalyzeBirdCall: () -> Unit,
     onHoldTalkStart: () -> Unit,
@@ -201,6 +241,7 @@ private fun PhoneOnlyScreen(
     val context = LocalContext.current
     var showLogs by remember { mutableStateOf(false) }
     var showBirdBook by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(!apiKeyConfigured) }
 
     Scaffold(
         topBar = {
@@ -208,7 +249,7 @@ private fun PhoneOnlyScreen(
                 title = { Text("BirdingPal") },
                 actions = {
                     TextButton(onClick = { showBirdBook = true }) { Text("Bird Book") }
-                    TextButton(onClick = { showLogs = true }) { Text("Logs") }
+                    TextButton(onClick = { showSettings = true }) { Text("Settings") }
                 }
             )
         }
@@ -223,7 +264,27 @@ private fun PhoneOnlyScreen(
         ) {
             StatusRow(state.statusText, state.statusLive)
 
-            if (!state.isSocketConnected) {
+            if (!apiKeyConfigured) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("One-time setup", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Add your OpenAI API key on this phone, then connect. The key is kept in BirdingPal's private app storage and Android backup is disabled for this build.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Button(onClick = { showSettings = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Add OpenAI API Key")
+                        }
+                    }
+                }
+            } else if (!state.isSocketConnected) {
                 Button(onClick = onConnect, modifier = Modifier.fillMaxWidth()) {
                     Text(if (state.armed) "Reconnect to BirdingPal" else "Connect to BirdingPal")
                 }
@@ -256,7 +317,7 @@ private fun PhoneOnlyScreen(
 
             if (!birdNetConfigured) {
                 Text(
-                    "Bird-call analysis is optional. Configure BIRDNET_ANALYZER_URL to enable it; voice identification still works without BirdNET.",
+                    "Bird-call audio analysis is optional and needs a BirdNET-compatible endpoint in Settings. Voice identification and the Bird Book work without it.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -264,7 +325,7 @@ private fun PhoneOnlyScreen(
 
             HoldToTalkButton(
                 text = if (state.isHoldingToTalk) "Release to Send" else "Hold to Talk",
-                enabled = state.armed && !state.analyzingBirdCall,
+                enabled = state.armed && apiKeyConfigured && !state.analyzingBirdCall,
                 onPressStart = onHoldTalkStart,
                 onPressEnd = onHoldTalkEnd
             )
@@ -279,6 +340,10 @@ private fun PhoneOnlyScreen(
                 messages = state.chatMessages,
                 modifier = Modifier.weight(1f)
             )
+
+            TextButton(onClick = { showLogs = true }, modifier = Modifier.align(Alignment.End)) {
+                Text("Diagnostics")
+            }
         }
     }
 
@@ -288,6 +353,95 @@ private fun PhoneOnlyScreen(
     if (showBirdBook) {
         BirdBookDialog(loadBirdBook(context.filesDir)) { showBirdBook = false }
     }
+    if (showSettings) {
+        SettingsDialog(
+            apiKey = storedApiKey,
+            birdNetUrl = storedBirdNetUrl,
+            buildApiKeyConfigured = buildApiKeyConfigured,
+            buildBirdNetConfigured = buildBirdNetConfigured,
+            onSave = { apiKey, birdNetUrl ->
+                onSaveSettings(apiKey, birdNetUrl)
+                showSettings = false
+            },
+            onClose = { showSettings = false }
+        )
+    }
+}
+
+@Composable
+private fun SettingsDialog(
+    apiKey: String,
+    birdNetUrl: String,
+    buildApiKeyConfigured: Boolean,
+    buildBirdNetConfigured: Boolean,
+    onSave: (String, String) -> Unit,
+    onClose: () -> Unit
+) {
+    var keyDraft by remember(apiKey) { mutableStateOf(apiKey) }
+    var birdNetDraft by remember(birdNetUrl) { mutableStateOf(birdNetUrl) }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("BirdingPal Settings") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "OpenAI API key",
+                    fontWeight = FontWeight.SemiBold
+                )
+                OutlinedTextField(
+                    value = keyDraft,
+                    onValueChange = { keyDraft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("sk-…") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation()
+                )
+                if (buildApiKeyConfigured && keyDraft.isBlank()) {
+                    Text(
+                        "This private build already contains an OpenAI API key. Entering one here overrides it.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    Text(
+                        "Stored in this app's private storage on the phone. It is not committed to GitHub.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                Text(
+                    "BirdNET endpoint (optional)",
+                    fontWeight = FontWeight.SemiBold
+                )
+                OutlinedTextField(
+                    value = birdNetDraft,
+                    onValueChange = { birdNetDraft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("https://…") },
+                    singleLine = true
+                )
+                Text(
+                    if (buildBirdNetConfigured && birdNetDraft.isBlank()) {
+                        "A BirdNET endpoint is already included in this build."
+                    } else {
+                        "Leave blank if you only want conversational bird identification."
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(keyDraft.trim(), birdNetDraft.trim()) }) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onClose) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
