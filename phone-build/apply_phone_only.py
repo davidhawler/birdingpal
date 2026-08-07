@@ -37,8 +37,48 @@ def main() -> int:
         )
         gradle_path.write_text(text)
 
+    contract_path = android / "app" / "src" / "main" / "java" / "com" / "openaiexperiments" / "birdingbuddy" / "nativeapp" / "background" / "BirdBuddySessionContract.kt"
+    text = contract_path.read_text()
+    if "candidateConfidencePercent" not in text:
+        text = replace_once(
+            text,
+            '    val bleLastPacketHex: String = "",\n    val lastTriggerSource: BirdBuddyTriggerSource? = null,\n',
+            '    val bleLastPacketHex: String = "",\n'
+            '    val candidateName: String? = null,\n'
+            '    val candidateConfidencePercent: Int? = null,\n'
+            '    val candidateSource: String? = null,\n'
+            '    val lastTriggerSource: BirdBuddyTriggerSource? = null,\n',
+            "identification state fields",
+        )
+        contract_path.write_text(text)
+
+    store_path = android / "app" / "src" / "main" / "java" / "com" / "openaiexperiments" / "birdingbuddy" / "nativeapp" / "background" / "BirdBuddySessionStore.kt"
+    text = store_path.read_text()
+    if "fun setIdentification(" not in text:
+        text = replace_once(
+            text,
+            '    fun appendLog(message: String) {\n',
+            '    fun setIdentification(\n'
+            '        name: String?,\n'
+            '        confidencePercent: Int? = null,\n'
+            '        source: String? = null\n'
+            '    ) {\n'
+            '        _state.update {\n'
+            '            it.copy(\n'
+            '                candidateName = name,\n'
+            '                candidateConfidencePercent = confidencePercent,\n'
+            '                candidateSource = source\n'
+            '            )\n'
+            '        }\n'
+            '    }\n\n'
+            '    fun appendLog(message: String) {\n',
+            "identification state setter",
+        )
+        store_path.write_text(text)
+
     controller_path = android / "app" / "src" / "main" / "java" / "com" / "openaiexperiments" / "birdingbuddy" / "nativeapp" / "net" / "ExperimentControllers.kt"
     text = controller_path.read_text()
+
     if 'getSharedPreferences("birdingpal_settings"' not in text:
         text = replace_once(
             text,
@@ -92,7 +132,75 @@ def main() -> int:
             '            }\n',
             "runtime BirdNET URL",
         )
-        controller_path.write_text(text)
+
+    if "BirdBuddySessionStore" not in text:
+        text = replace_once(
+            text,
+            'import com.openaiexperiments.birdingbuddy.BuildConfig\n',
+            'import com.openaiexperiments.birdingbuddy.BuildConfig\n'
+            'import com.openaiexperiments.birdingbuddy.nativeapp.background.BirdBuddySessionStore\n',
+            "session store import",
+        )
+
+    if "lastBirdCallCandidate" not in text:
+        text = replace_once(
+            text,
+            '    private var captureMode: CaptureMode? = null\n',
+            '    private var captureMode: CaptureMode? = null\n'
+            '    private var lastBirdCallCandidate: BirdCandidate? = null\n',
+            "last bird-call candidate",
+        )
+
+        text = replace_once(
+            text,
+            '                                    "You are a bird encyclopedia. Respond with a JSON object containing: name, commonName, family, habitat, size, diet, notes. Keep each field brief (1-2 sentences max)."\n',
+            '                                    "You are a bird encyclopedia. Respond with a JSON object containing: name, commonName, scientificName, family, habitat, size, diet, notes. Keep each field brief (1-2 sentences max)."\n',
+            "scientific name enrichment",
+        )
+
+        text = replace_once(
+            text,
+            '        val entry =\n'
+            '            JSONObject()\n'
+            '                .put("name", name)\n'
+            '                .put("addedAt", System.currentTimeMillis())\n'
+            '                .put("info", info)\n\n'
+            '        entries.put(entry)\n',
+            '        val coords = getLastKnownCoordinates(context)\n'
+            '        val matchedConfidence =\n'
+            '            lastBirdCallCandidate\n'
+            '                ?.takeIf { it.name.equals(name, ignoreCase = true) }\n'
+            '                ?.percent\n\n'
+            '        val entry =\n'
+            '            JSONObject()\n'
+            '                .put("name", name)\n'
+            '                .put("addedAt", System.currentTimeMillis())\n'
+            '                .put("info", info)\n'
+            '                .put("lat", coords?.lat ?: JSONObject.NULL)\n'
+            '                .put("lon", coords?.lon ?: JSONObject.NULL)\n\n'
+            '        if (matchedConfidence != null) {\n'
+            '            entry.put("confidence", matchedConfidence)\n'
+            '        }\n\n'
+            '        entries.put(entry)\n',
+            "sighting metadata",
+        )
+
+        text = replace_once(
+            text,
+            '        val highConfidenceBird = findHighConfidenceBird(result)\n\n'
+            '        val inputText =\n',
+            '        val highConfidenceBird = findHighConfidenceBird(result)\n'
+            '        lastBirdCallCandidate = highConfidenceBird\n'
+            '        BirdBuddySessionStore.setIdentification(\n'
+            '            name = highConfidenceBird?.name,\n'
+            '            confidencePercent = highConfidenceBird?.percent,\n'
+            '            source = if (highConfidenceBird != null) "Bird call" else null\n'
+            '        )\n\n'
+            '        val inputText =\n',
+            "identification result state",
+        )
+
+    controller_path.write_text(text)
 
     service_path = android / "app" / "src" / "main" / "java" / "com" / "openaiexperiments" / "birdingbuddy" / "nativeapp" / "background" / "BirdBuddySessionService.kt"
     text = service_path.read_text()
@@ -145,6 +253,14 @@ def main() -> int:
     ui_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(kit / "PhoneOnlyApp.kt", ui_dir / "PhoneOnlyApp.kt")
 
+    drawable_dir = android / "app" / "src" / "main" / "res" / "drawable"
+    drawable_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(kit / "ic_birdingpal.xml", drawable_dir / "ic_birdingpal.xml")
+
+    strings_path = android / "app" / "src" / "main" / "res" / "values" / "strings.xml"
+    strings = strings_path.read_text().replace('>Birding Buddy<', '>BirdingPal<')
+    strings_path.write_text(strings)
+
     manifest_path = android / "app" / "src" / "main" / "AndroidManifest.xml"
     text = manifest_path.read_text()
     for block in [
@@ -158,6 +274,8 @@ def main() -> int:
     ]:
         text = text.replace(block, '')
     text = text.replace('android:allowBackup="true"', 'android:allowBackup="false"')
+    text = text.replace('android:icon="@android:drawable/sym_def_app_icon"', 'android:icon="@drawable/ic_birdingpal"')
+    text = text.replace('android:roundIcon="@android:drawable/sym_def_app_icon"', 'android:roundIcon="@drawable/ic_birdingpal"')
     text = text.replace(
         'android:foregroundServiceType="dataSync"\n            android:stopWithTask="false"',
         'android:foregroundServiceType="dataSync|microphone"\n            android:stopWithTask="true"',
