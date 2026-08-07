@@ -3,6 +3,8 @@ name: Build BirdingPal phone APK
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -25,25 +27,17 @@ jobs:
       - name: Apply phone-only overlay
         run: python3 phone-build/apply_phone_only.py .
 
-      - name: Configure build
+      - name: Configure phone build
         working-directory: android
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           BIRDNET_ANALYZER_URL: ${{ secrets.BIRDNET_ANALYZER_URL }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && [ -z "$OPENAI_API_KEY" ]; then
-            echo "::error::Add OPENAI_API_KEY as a repository Actions secret before the installable build."
-            exit 1
-          fi
-          API_KEY="${OPENAI_API_KEY:-sk-build-placeholder}"
           {
-            echo "OPENAI_API_KEY=$API_KEY"
+            echo "OPENAI_API_KEY=$OPENAI_API_KEY"
             echo "BIRDNET_ANALYZER_URL=$BIRDNET_ANALYZER_URL"
             echo "ENABLE_BLE=false"
           } > local.properties
-          if [ "$API_KEY" = "sk-build-placeholder" ]; then
-            echo "PR validation build: using a placeholder API key."
-          fi
 
       - name: Build debug APK
         working-directory: android
